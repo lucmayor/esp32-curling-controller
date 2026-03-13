@@ -11,6 +11,7 @@ enum Stage
 {
     TeamChoice,
     MainLoop,
+    StartSleep,
     Sleep
 };
 
@@ -20,6 +21,14 @@ enum Command
     LookingHost,  //
     Connected,
     Disconnect
+};
+
+enum SweepCmds
+{
+    Clean,
+    Line,
+    Curl,
+    Stop
 };
 
 // pairing system payload.
