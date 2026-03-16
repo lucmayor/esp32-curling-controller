@@ -9,18 +9,26 @@
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data);
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void pairing_call();
+void ARDUINO_ISR_ATTR wakeup();
+SweepCmds button_click();
 
-// global cmds
+// GLOBAL CMDS
+// state checks
 Stage state;
-uint8_t wide_addr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+int start_search_time = 0;
+int last_command_timestamp = 0;
 
-// pins
+// consts
+const uint8_t wide_addr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+uint8_t loc_addr[];
+uint8_t peer_one[];
+uint8_t peer_two[];
+
+// consts. for pins
 const int BUTTON_ONE = 00;
 const int BUTTON_TWO = 00;
 const int BUTTON_THR = 00;
 const int BUTTON_FOU = 00;
-
-int start_search_time = 0;
 
 void setup()
 {
@@ -35,6 +43,8 @@ void setup()
     Serial.println("ERROR: Initialization of ESP-NOW failed!");
     return;
   }
+
+  get_mac(loc_addr);
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
 
   state = TeamChoice;
@@ -69,6 +79,24 @@ void loop()
     break;
   case MainLoop:
     // check against .. also call sleeps here
+    SweepCmds cmd = button_click();
+
+    // display func
+    switch (cmd)
+    {
+    case Stop:
+      break;
+    case Curl:
+      break;
+    case Line:
+      break;
+    case Clean:
+      break;
+    case Hard:
+      break;
+    }
+
+    // prepare sleep
 
     break;
   case StartSleep:
@@ -97,6 +125,7 @@ void loop()
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
+  // only raise issue if failure
   if (status == ESP_NOW_SEND_FAIL)
   {
     Serial.print("ERROR SENDING TO: ");
@@ -113,10 +142,50 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data)
   case TeamChoice:
     ConnectMessage data;
     memcpy(&data, incoming_data, sizeof(data));
+
+    if (data.command == LookingHost)
+    {
+      // add to peerlist
+      esp_now_peer_info_t peer;
+      memcpy(peer.peer_addr, data.addr, 6);
+      if (esp_now_add_peer(&peer) == ESP_OK)
+      {
+        // display connected
+        // send connected
+      }
+      else
+      {
+        // display error
+      }
+    }
+    else
+    {
+      // debug message
+      Serial.print("ERROR: Bad message received. State-found: ");
+      Serial.print(data.command);
+      Serial.print(". Delivered by: ");
+      for (int i = 0; i < 6; i++)
+      {
+        Serial.print(data.addr[i]);
+      }
+      Serial.println("");
+    }
     break;
   case MainLoop:
-    MainMessage data;
+    ConnectMessage data;
     memcpy(&data, incoming_data, sizeof(data));
+
+    switch (data.command)
+    {
+    case Heartbeat:
+      break;
+    case Disconnect:
+      break;
+    default:
+      // sanity check
+      break;
+    }
+
     break;
   case Sleep:
     break;
@@ -126,7 +195,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data)
 void pairing_call()
 {
   ConnectMessage data;
-  getMac(data.addr);
+  get_mac(data.addr);
   esp_err_t res = esp_now_send(wide_addr, (uint8_t *)&data, sizeof(data));
 
   if (res != ESP_OK)
@@ -144,4 +213,24 @@ void ARDUINO_ISR_ATTR wakeup()
   detachInterrupt(digitalPinToInterrupt(BUTTON_TWO));
   detachInterrupt(digitalPinToInterrupt(BUTTON_THR));
   detachInterrupt(digitalPinToInterrupt(BUTTON_FOU));
+
+  return;
+}
+
+SweepCmds button_click()
+{
+  if (analogRead(BUTTON_ONE) == 4095)
+  {
+    // stop, as its the most important command to come through
+    return Stop;
+  }
+  else if (analogRead(BUTTON_TWO) == 4095)
+  {
+  }
+  else if (analogRead(BUTTON_THR) == 4095)
+  {
+  }
+  else if (analogRead(BUTTON_FOU == 4095))
+  {
+  }
 }

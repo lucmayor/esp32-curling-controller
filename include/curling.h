@@ -18,13 +18,15 @@ enum Stage
 enum Command
 {
     LookingPeers, // sent by host, looking for peers
-    LookingHost,  //
-    Connected,
+    LookingHost,  // sent by peer, attaching to host
+    Connected,    // sent by host, connected confirmation.
+    Heartbeat,    // sent by both
     Disconnect
 };
 
 enum SweepCmds
 {
+    Hard,
     Clean,
     Line,
     Curl,
@@ -34,7 +36,7 @@ enum SweepCmds
 // pairing system payload.
 typedef struct payload
 {
-    uint8_t command;
+    Command command;
     uint8_t addr[6];
 } ConnectMessage;
 
@@ -51,21 +53,14 @@ typedef struct cache
     int64_t timestamp;
 } CachedMessage;
 
-void getMac(uint8_t mac_addr[]);
+void get_mac(uint8_t *mac_addr);
 
-void getMac(uint8_t mac_addr)
+void get_mac(uint8_t *mac_addr)
 {
-    uint8_t baseMac[6];
-    esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, baseMac);
-    if (ret == ESP_OK)
+    esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, mac_addr);
+    if (ret != ESP_OK)
     {
-        Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n",
-                      baseMac[0], baseMac[1], baseMac[2],
-                      baseMac[3], baseMac[4], baseMac[5]);
-    }
-    else
-    {
-        Serial.println("Failed to read MAC address");
+      Serial.println("Failed to read MAC address");
     }
 }
 
