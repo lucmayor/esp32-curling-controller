@@ -28,8 +28,8 @@ enum SweepCmds
 {
     Hard,
     Clean,
-    Line,
-    Curl,
+    Left,
+    Right,
     Stop
 };
 

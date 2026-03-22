@@ -21,14 +21,18 @@ int last_command_timestamp = 0;
 // consts
 const uint8_t wide_addr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 uint8_t loc_addr[];
-uint8_t peer_one[];
-uint8_t peer_two[];
+
+esp_now_peer_num_t peers;
+uint64_t last_heard[] = {-1, -1};
+
+MainMessage m;
 
 // consts. for pins
 const int BUTTON_ONE = 00;
 const int BUTTON_TWO = 00;
 const int BUTTON_THR = 00;
 const int BUTTON_FOU = 00;
+const int BUTTON_FIV = 00;
 
 void setup()
 {
@@ -65,7 +69,14 @@ void loop()
     // timeout after 30 seconds
     if ((start_search_time - time) > 30000)
     {
-      state = Sleep;
+      if (peers.total_num > 0)
+      {
+        state = MainLoop;
+      }
+      else
+      {
+        state = Sleep;
+      }
       start_search_time = 0;
       return;
     }
@@ -80,20 +91,12 @@ void loop()
   case MainLoop:
     // check against .. also call sleeps here
     SweepCmds cmd = button_click();
+    m.command = cmd;
 
-    // display func
-    switch (cmd)
-    {
-    case Stop:
-      break;
-    case Curl:
-      break;
-    case Line:
-      break;
-    case Clean:
-      break;
-    case Hard:
-      break;
+    // send data
+    esp_now_peer_info_t peer;
+    if (esp_now_send(NULL, (uint8_t *) &m, sizeof(m)) != ESP_OK) {
+      Serial.println("ERROR: Failure sending message");
     }
 
     // prepare sleep
@@ -150,12 +153,24 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data)
       memcpy(peer.peer_addr, data.addr, 6);
       if (esp_now_add_peer(&peer) == ESP_OK)
       {
-        // display connected
-        // send connected
+        esp_now_get_peer_num(&peers);
+        if (peers.total_num == 1)
+        {
+          last_heard[0] = 0;
+        }
+        else if (peers.total_num > 2)
+        {
+          Serial.println("ERROR: More than 2 peers connected!");
+        }
+        else
+        {
+          last_heard[1] = 0;
+        }
       }
       else
       {
         // display error
+        Serial.println("ERROR: Failure adding peer!");
       }
     }
     else
@@ -180,6 +195,18 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data)
     case Heartbeat:
       break;
     case Disconnect:
+      if (esp_now_del_peer(data.addr) == ESP_OK)
+      {
+        esp_now_get_peer_num(&peers);
+        if (peers.total_num == 0)
+        {
+          state = StartSleep;
+        }
+      }
+      else
+      {
+        Serial.println("ERROR: Failure when removing peer!");
+      }
       break;
     default:
       // sanity check
@@ -202,6 +229,8 @@ void pairing_call()
   {
     Serial.println("ERROR: Sending pairing message failed!");
   }
+
+  return;
 }
 
 void ARDUINO_ISR_ATTR wakeup()
@@ -230,7 +259,10 @@ SweepCmds button_click()
   else if (analogRead(BUTTON_THR) == 4095)
   {
   }
-  else if (analogRead(BUTTON_FOU == 4095))
+  else if (analogRead(BUTTON_FOU) == 4095)
+  {
+  }
+  else if (analogRead(BUTTON_FIV) == 4095)
   {
   }
 }
