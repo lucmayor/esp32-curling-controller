@@ -20,10 +20,10 @@ int last_command_timestamp = 0;
 
 // consts
 const uint8_t wide_addr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-uint8_t loc_addr[];
+uint8_t loc_addr[6];
 
 esp_now_peer_num_t peers;
-uint64_t last_heard[] = {-1, -1};
+int64_t last_heard[] = {-1, -1};
 
 MainMessage m;
 
