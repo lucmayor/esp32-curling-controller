@@ -17,13 +17,14 @@ SweepCmds button_click();
 Stage state;
 int start_search_time = 0;
 int last_command_timestamp = 0;
+int last_heard_timestamp;
 
 // consts
 const uint8_t wide_addr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 uint8_t loc_addr[6];
 
 esp_now_peer_num_t peers;
-int64_t last_heard[] = {-1, -1};
+int64_t last_heard[] = {-1, -1}; // currently not used, add if time :x
 
 MainMessage m;
 
@@ -37,8 +38,9 @@ const int BUTTON_FIV = 00;
 void setup()
 {
   Serial.begin(9600);
-  setCpuFrequencyMhz(80);
+  setCpuFrequencyMhz(80); // slow clock speed
 
+  // start espnow
   WiFi.mode(WIFI_STA);
   WiFi.channel(1);
 
@@ -48,18 +50,21 @@ void setup()
     return;
   }
 
+  // save local mac addr
   get_mac(loc_addr);
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
 
+  // set initialization state
   state = TeamChoice;
 }
 
 void loop()
 {
+  uint64_t time = esp_timer_get_time() / 1000;
+
   switch (state)
   {
   case TeamChoice:
-    uint64_t time = esp_timer_get_time() / 1000;
 
     // startup pairing
     if (start_search_time == 0)
@@ -67,7 +72,7 @@ void loop()
       start_search_time = time;
     }
     // timeout after 30 seconds
-    if ((start_search_time - time) > 30000)
+    if ((time - start_search_time) > 30000)
     {
       if (peers.total_num > 0)
       {
@@ -91,18 +96,23 @@ void loop()
   case MainLoop:
     // check against .. also call sleeps here
     SweepCmds cmd = button_click();
-    m.command = cmd;
+    if (cmd != None)
+    {
+      m.command = cmd;
 
-    // send data
-    esp_now_peer_info_t peer;
-    if (esp_now_send(NULL, (uint8_t *) &m, sizeof(m)) != ESP_OK) {
-      Serial.println("ERROR: Failure sending message");
+      // send data
+      esp_now_peer_info_t peer;
+      if (esp_now_send(NULL, (uint8_t *)&m, sizeof(m)) != ESP_OK)
+      {
+        Serial.println("ERROR: Failure sending command message.");
+      }
     }
 
-    // prepare sleep
+    // prepare for sleep
 
     break;
   case StartSleep:
+    // this is IDLE mode, less so an actual sleep
     // attach interrupts to wakeup device
     attachInterrupt(digitalPinToInterrupt(BUTTON_ONE), wakeup, RISING);
     attachInterrupt(digitalPinToInterrupt(BUTTON_TWO), wakeup, RISING);
@@ -136,10 +146,16 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
   }
 }
 
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data)
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
 {
   // handling method .. can move out of this and into separate recv_cb binds within the loop
   // this works for now (probably)
+  if (len != sizeof(ConnectMessage) && len != sizeof(MainMessage))
+  {
+    // early return, bad data
+    return;
+  }
+
   switch (state)
   {
   case TeamChoice:
@@ -190,11 +206,14 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data)
     ConnectMessage data;
     memcpy(&data, incoming_data, sizeof(data));
 
+    // commands from
     switch (data.command)
     {
     case Heartbeat:
       break;
     case Disconnect:
+      // attempt to remove peer
+      // note: does this count wide addr? most other methods don't
       if (esp_now_del_peer(data.addr) == ESP_OK)
       {
         esp_now_get_peer_num(&peers);
@@ -215,14 +234,20 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data)
 
     break;
   case Sleep:
+    // this should also check against cmd for a heartbeat
+    break;
+  default:
     break;
   }
 }
 
 void pairing_call()
 {
+  // build pairing message
   ConnectMessage data;
   get_mac(data.addr);
+  data.command = LookingPeers;
+  // send message widely
   esp_err_t res = esp_now_send(wide_addr, (uint8_t *)&data, sizeof(data));
 
   if (res != ESP_OK)
@@ -235,6 +260,7 @@ void pairing_call()
 
 void ARDUINO_ISR_ATTR wakeup()
 {
+  // place back in active searching state
   state = TeamChoice;
 
   // remove all interrupts
@@ -248,21 +274,31 @@ void ARDUINO_ISR_ATTR wakeup()
 
 SweepCmds button_click()
 {
+  // stop check, as its the most important command to come through
+  // milliseconds of difference, but still...
   if (analogRead(BUTTON_ONE) == 4095)
   {
-    // stop, as its the most important command to come through
     return Stop;
   }
   else if (analogRead(BUTTON_TWO) == 4095)
   {
+    return Hard;
   }
   else if (analogRead(BUTTON_THR) == 4095)
   {
+    return Clean;
   }
   else if (analogRead(BUTTON_FOU) == 4095)
   {
+    return Left;
   }
   else if (analogRead(BUTTON_FIV) == 4095)
   {
+    return Right;
+  }
+  else
+  {
+    // early return no pointer
+    return None;
   }
 }

@@ -30,7 +30,8 @@ enum SweepCmds
     Clean,
     Left,
     Right,
-    Stop
+    Stop,
+    None
 };
 
 // pairing system payload.
