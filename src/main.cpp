@@ -165,6 +165,10 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
       memcpy(&data, incoming_data, sizeof(data));
 
       if (data.command == LookingHost) {
+        if (peers.total_num >= 2) {
+          return;
+        }
+
         Serial.println("RECEIVER MESSAGE RECVD");
 
         // add to peerlist
@@ -177,14 +181,20 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
           esp_now_get_peer_num(&peers);
 
           Serial.print("PEER CONNECTED: ");
-          Serial.println(peer.peer_addr[0]);
+          for (int i = 0; i < 6; i++) {
+            Serial.print(data.addr[i]);
+            if (i != 5) {
+              Serial.print(":");
+            }
+          }
+          Serial.println("");
 
           if (peers.total_num == 1) {
-            last_heard[0] = 0;
+            last_heard[0] = esp_timer_get_time() / 1000;
           } else if (peers.total_num > 2) {
             Serial.println("ERROR: More than 2 peers connected!");
           } else {
-            last_heard[1] = 0;
+            last_heard[1] = esp_timer_get_time() / 1000;
           }
         } else {
           // display error
@@ -210,6 +220,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
       // commands from
       switch (data.command)  {
         case Heartbeat: {
+          
           break;
         }
         case Disconnect: {
@@ -218,11 +229,12 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
           if (esp_now_del_peer(data.addr) == ESP_OK) {
             esp_now_get_peer_num(&peers);
             if (peers.total_num == 0) {
-              state = StartSleep;
+              state = Sleep;
             }
           } else {
             Serial.println("ERROR: Failure when removing peer!");
           }
+
           break;
         }
         default: {
@@ -258,7 +270,7 @@ void pairing_call() {
 
 SweepCmds button_click() {
   // stop check, as its the most important command to come through
-  // milliseconds of difference, but still...
+  // microseconds of difference, but still...
   if (analogRead(BUTTON_ONE) == 4095) {
     Serial.println("SENDING: STOP");
     return Stop;
