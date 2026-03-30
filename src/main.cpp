@@ -9,7 +9,7 @@
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len);
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void pairing_call();
-void ARDUINO_ISR_ATTR wakeup();
+void wakeup_check();
 SweepCmds button_click();
 
 // GLOBAL CMDS
@@ -30,11 +30,11 @@ int64_t last_heard[] = {-1, -1}; // currently not used, add if time :x
 MainMessage m;
 
 // consts. for pins
-const int BUTTON_ONE = 34;
-const int BUTTON_TWO = 00;
-const int BUTTON_THR = 00;
-const int BUTTON_FOU = 00;
-const int BUTTON_FIV = 00;
+const int BUTTON_ONE = 36; // all below this are generics for now
+const int BUTTON_TWO = 39; 
+const int BUTTON_THR = 34;
+const int BUTTON_FOU = 32;
+const int BUTTON_FIV = 33;
 
 void setup()
 {
@@ -81,13 +81,12 @@ void loop()
 
       // timeout after 30 seconds (set to 10s for testing)
       if ((time - start_search_time) > 10000) {
-        Serial.println("TIMEOUT");
         if (peers.total_num > 0) {
-          Serial.println("Put in main");
+          Serial.println("TIMEOUT: MAIN");
           state = MainLoop;
         } else {
-          Serial.println("Put to sleep");
-          state = StartSleep;
+          Serial.println("TIMEOUT: SLEEP");
+          state = Sleep;
         }
         start_search_time = 0;
         return;
@@ -96,7 +95,6 @@ void loop()
       // send out signal
       // four times per second...
       if ((time - last_search_time) > 250) {
-        Serial.println("SENDING");
         pairing_call();
         last_search_time = time;
       }
@@ -111,10 +109,9 @@ void loop()
         Serial.print("SUCCESS: Sending message ");
         Serial.println(cmd);
 
-        m.command = cmd;
+        m.command = (uint8_t) cmd;
 
         // send data
-        esp_now_peer_info_t peer;
         if (esp_now_send(NULL, (uint8_t *)&m, sizeof(m)) != ESP_OK) {
           Serial.println("ERROR: Failure sending command message.");
         }
@@ -124,27 +121,13 @@ void loop()
       delay(500);
       break;
     }
-    case StartSleep: {
-      // this is IDLE mode, less so an actual sleep
-      // attach interrupts to wakeup device
-      Serial.println("PREP SLEEP");
-      attachInterrupt(digitalPinToInterrupt(BUTTON_ONE), wakeup, CHANGE);
-      attachInterrupt(digitalPinToInterrupt(BUTTON_TWO), wakeup, CHANGE);
-      attachInterrupt(digitalPinToInterrupt(BUTTON_THR), wakeup, CHANGE);
-      attachInterrupt(digitalPinToInterrupt(BUTTON_FOU), wakeup, CHANGE);
-      attachInterrupt(digitalPinToInterrupt(BUTTON_FIV), wakeup, CHANGE);
-
-      state = Sleep;
-
-      break;
-    }
     case Sleep:
     {
       // sleep is only used when
       // no peers connected
       // and search times out
 
-      // wake up on button interrupt
+      wakeup_check();
       break;
     }
     default: {
@@ -182,9 +165,14 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
       memcpy(&data, incoming_data, sizeof(data));
 
       if (data.command == LookingHost) {
+        Serial.println("RECEIVER MESSAGE RECVD");
+
         // add to peerlist
-        esp_now_peer_info_t peer;
+        esp_now_peer_info_t peer = {};
         memcpy(peer.peer_addr, data.addr, 6);
+        peer.channel = 0;
+        peer.encrypt = false;
+        
         if (esp_now_add_peer(&peer) == ESP_OK) {
           esp_now_get_peer_num(&peers);
 
@@ -212,7 +200,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
         }
         Serial.println("");
       }
-      
+
       break;
     }
     case MainLoop: {
@@ -268,36 +256,35 @@ void pairing_call() {
   return;
 }
 
-void ARDUINO_ISR_ATTR wakeup() {
-  // place back in active searching state
-  Serial.println("WOKEUP");
-  state = TeamChoice;
-
-  // remove all interrupts
-  detachInterrupt(digitalPinToInterrupt(BUTTON_ONE));
-  detachInterrupt(digitalPinToInterrupt(BUTTON_TWO));
-  detachInterrupt(digitalPinToInterrupt(BUTTON_THR));
-  detachInterrupt(digitalPinToInterrupt(BUTTON_FOU));
-  detachInterrupt(digitalPinToInterrupt(BUTTON_FIV));
-
-  return;
-}
-
 SweepCmds button_click() {
   // stop check, as its the most important command to come through
   // milliseconds of difference, but still...
-  if (analogRead(BUTTON_ONE) > 100) {
+  if (analogRead(BUTTON_ONE) == 4095) {
+    Serial.println("SENDING: STOP");
     return Stop;
-  } else if (analogRead(BUTTON_TWO) > 100) {
+  } else if (analogRead(BUTTON_TWO) == 4095) {
+    Serial.println("SENDING: HARD");
     return Hard;
-  } else if (analogRead(BUTTON_THR) > 100) {
+  } else if (analogRead(BUTTON_THR) == 4095) {
+    Serial.println("SENDING: CLEAN");
     return Clean;
-  } else if (analogRead(BUTTON_FOU) > 100) {
+  } else if (analogRead(BUTTON_FOU) == 4095) {
+    Serial.println("SENDING: LEFT");
     return Left;
-  } else if (analogRead(BUTTON_FIV) > 100)  {
+  } else if (analogRead(BUTTON_FIV) == 4095)  {
+    Serial.println("SENDING: RIGHT");
     return Right;
   } else {
     // early return no pointer
     return None;
+  }
+}
+
+void wakeup_check() {
+  // i got a 'guru medfitation error' and it seems to be related to delay usage + interrupts
+  // we are going to be doing something very disgusting
+  if (analogRead(BUTTON_ONE) == 4095 || analogRead(BUTTON_TWO) == 4095 || analogRead(BUTTON_THR) == 4095 || analogRead(BUTTON_FOU) == 4095 || analogRead(BUTTON_FIV) == 4095) {
+    Serial.println("WAKEUP");
+    state = TeamChoice;
   }
 }
