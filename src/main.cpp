@@ -30,11 +30,11 @@ int64_t last_heard[] = {-1, -1}; // currently not used, add if time :x
 MainMessage m;
 
 // consts. for pins
-const int BUTTON_ONE = 36; // all below this are generics for now
-const int BUTTON_TWO = 39; 
-const int BUTTON_THR = 34;
-const int BUTTON_FOU = 32;
-const int BUTTON_FIV = 33;
+const int BUTTON_ONE = 25;
+const int BUTTON_TWO = 26; 
+const int BUTTON_THR = 27;
+const int BUTTON_FOU = 21;
+const int BUTTON_FIV = 19;
 
 void setup()
 {
@@ -44,6 +44,9 @@ void setup()
   // start espnow
   WiFi.mode(WIFI_STA);
   WiFi.channel(1);
+
+  pinMode(25, INPUT_PULLUP);
+  pinMode(26, INPUT_PULLUP);
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("ERROR: Initialization of ESP-NOW failed!");
@@ -271,19 +274,30 @@ void pairing_call() {
 SweepCmds button_click() {
   // stop check, as its the most important command to come through
   // microseconds of difference, but still...
-  if (analogRead(BUTTON_ONE) == 4095) {
+  Serial.print("BUTTON: ");
+  Serial.print(digitalRead(BUTTON_ONE));
+  Serial.print(" ");
+  Serial.print(digitalRead(BUTTON_TWO));
+  Serial.print(" ");
+  Serial.print(digitalRead(BUTTON_THR));
+  Serial.print(" ");
+  Serial.print(digitalRead(BUTTON_FOU));
+  Serial.print(" ");
+  Serial.println(digitalRead(BUTTON_FIV));
+
+  if (digitalRead(BUTTON_FIV)) {
     Serial.println("SENDING: STOP");
     return Stop;
-  } else if (analogRead(BUTTON_TWO) == 4095) {
+  } else if (digitalRead(BUTTON_FOU)) {
     Serial.println("SENDING: HARD");
     return Hard;
-  } else if (analogRead(BUTTON_THR) == 4095) {
+  } else if (digitalRead(BUTTON_ONE)) {
     Serial.println("SENDING: CLEAN");
     return Clean;
-  } else if (analogRead(BUTTON_FOU) == 4095) {
+  } else if (digitalRead(BUTTON_THR)) {
     Serial.println("SENDING: LEFT");
     return Left;
-  } else if (analogRead(BUTTON_FIV) == 4095)  {
+  } else if (digitalRead(BUTTON_TWO))  {
     Serial.println("SENDING: RIGHT");
     return Right;
   } else {
@@ -295,7 +309,7 @@ SweepCmds button_click() {
 void wakeup_check() {
   // i got a 'guru medfitation error' and it seems to be related to delay usage + interrupts
   // we are going to be doing something very disgusting
-  if (analogRead(BUTTON_ONE) == 4095 || analogRead(BUTTON_TWO) == 4095 || analogRead(BUTTON_THR) == 4095 || analogRead(BUTTON_FOU) == 4095 || analogRead(BUTTON_FIV) == 4095) {
+  if (digitalRead(BUTTON_ONE) || digitalRead(BUTTON_TWO) || digitalRead(BUTTON_THR) || digitalRead(BUTTON_FOU) || digitalRead(BUTTON_FIV)) {
     Serial.println("WAKEUP");
     state = TeamChoice;
   }
