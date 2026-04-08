@@ -285,6 +285,9 @@ SweepCmds button_click() {
   Serial.print(" ");
   Serial.println(digitalRead(BUTTON_FIV));
 
+  // note that button thr (physical left button)
+  // and button two (physical right button) are flipped
+  // this is to add mirroring for skip
   if (digitalRead(BUTTON_FIV)) {
     Serial.println("SENDING: STOP");
     return Stop;
@@ -295,11 +298,11 @@ SweepCmds button_click() {
     Serial.println("SENDING: CLEAN");
     return Clean;
   } else if (digitalRead(BUTTON_THR)) {
-    Serial.println("SENDING: LEFT");
-    return Left;
-  } else if (digitalRead(BUTTON_TWO))  {
     Serial.println("SENDING: RIGHT");
     return Right;
+  } else if (digitalRead(BUTTON_TWO))  {
+    Serial.println("SENDING: LEFT");
+    return Left;
   } else {
     // early return no pointer
     return None;
