@@ -22,8 +22,8 @@ int last_heard_timestamp;
 
 // consts
 const uint8_t wide_addr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-const uint32_t timeout = 500; // ms of timeout
-uint64_t sleep_time = 150000; // 150ms
+const uint32_t TIMEOUT = 500; // ms of timeout
+uint64_t SLEEP_TIME = 150000; // 150ms
 uint8_t loc_addr[6];
 
 esp_now_peer_num_t peers;
@@ -58,7 +58,7 @@ void setup()
   }
 
   // sleeps
-  if (esp_sleep_enable_timer_wakeup(sleep_time) != ESP_OK) {
+  if (esp_sleep_enable_timer_wakeup(SLEEP_TIME) != ESP_OK) {
     Serial.println("ERROR: Initialization of sleeps failed.");
 
     // we can just make this a de-initialization instead
@@ -134,20 +134,22 @@ void loop()
         if (esp_now_send(NULL, (uint8_t *)&m, sizeof(m)) != ESP_OK) {
           Serial.println("ERROR: Failure sending command message.");
         } else if (sleeps_enabled) {
+          // if sleep intialization errors, functionally can still work
+          // just with reduced sleeps
+
           // ensure message actually completes sending
-          uint32_t loc_timeout = timeout + millis();
+          uint32_t loc_timeout = TIMEOUT + millis();
           while (!send_complete && millis() < loc_timeout) {
             delay(1);
           }
 
-          // print success
+          // alert sleep
           Serial.println("SUCCESS: Sleeping!");
           Serial.flush();
           esp_light_sleep_start();
 
           // print success
           esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE); // ensure no changes
-          Serial.println("SUCCESS: Woke up!");
         }
       }
 
