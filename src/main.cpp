@@ -22,10 +22,14 @@ int last_heard_timestamp;
 
 // consts
 const uint8_t wide_addr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+const uint32_t timeout = 500; // ms of timeout
+uint64_t sleep_time = 150000; // 150ms
 uint8_t loc_addr[6];
 
 esp_now_peer_num_t peers;
 int64_t last_heard[] = {-1, -1}; // currently not used, add if time :x
+bool sleeps_enabled = true;
+static bool send_complete = false;
 
 MainMessage m;
 
@@ -53,6 +57,15 @@ void setup()
     return;
   }
 
+  // sleeps
+  if (esp_sleep_enable_timer_wakeup(sleep_time) != ESP_OK) {
+    Serial.println("ERROR: Initialization of sleeps failed.");
+
+    // we can just make this a de-initialization instead
+    // function is still "the same"
+    sleeps_enabled = false;
+  }
+
   esp_now_peer_info_t wide_peer = {};
   memcpy(wide_peer.peer_addr, wide_addr, 6);
   wide_peer.channel = 1;
@@ -61,10 +74,12 @@ void setup()
     Serial.println("ERROR: Initialization of WIDE PEER failed!");
     return;
   }
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
 
   // save local mac addr
   get_mac(loc_addr);
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+  esp_now_register_send_cb(OnDataSent);
 
   // set initialization state
   state = TeamChoice;
@@ -113,10 +128,26 @@ void loop()
         Serial.println(cmd);
 
         m.command = (uint8_t) cmd;
+        send_complete = false;
 
         // send data
         if (esp_now_send(NULL, (uint8_t *)&m, sizeof(m)) != ESP_OK) {
           Serial.println("ERROR: Failure sending command message.");
+        } else if (sleeps_enabled) {
+          // ensure message actually completes sending
+          uint32_t loc_timeout = timeout + millis();
+          while (!send_complete && millis() < loc_timeout) {
+            delay(1);
+          }
+
+          // print success
+          Serial.println("SUCCESS: Sleeping!");
+          Serial.flush();
+          esp_light_sleep_start();
+
+          // print success
+          esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE); // ensure no changes
+          Serial.println("SUCCESS: Woke up!");
         }
       }
 
@@ -147,6 +178,8 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
   if (status == ESP_NOW_SEND_FAIL) {
     Serial.print("ERROR SENDING TO: ");
     Serial.println(*mac_addr);
+  } else {
+    send_complete = true;
   }
 }
 
