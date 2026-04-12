@@ -17,19 +17,20 @@ SweepCmds button_click();
 Stage state;
 int start_search_time = 0;
 int last_search_time = 0;
-int last_command_timestamp = 0;
 int last_heard_timestamp;
+int64_t last_heard = 0;
+int64_t last_sent = 0;
+bool sleeps_enabled = true;
+static bool send_complete = false;
 
 // consts
 const uint8_t wide_addr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 const uint32_t TIMEOUT = 500; // ms of timeout
-uint64_t SLEEP_TIME = 150000; // 150ms
+const bool BUG_TESTING = false;
+const uint64_t SLEEP_TIME = 150000; // 150ms
 uint8_t loc_addr[6];
 
 esp_now_peer_num_t peers;
-int64_t last_heard[] = {-1, -1}; // currently not used, add if time :x
-bool sleeps_enabled = true;
-static bool send_complete = false;
 
 MainMessage m;
 
@@ -93,17 +94,17 @@ void loop()
     case TeamChoice: {
       // startup pairing
       if (start_search_time == 0) {
-        Serial.println("STARTING");
+        Serial.println("ACTION: Starting search!");
         start_search_time = time;
       }
 
       // timeout after 30 seconds (set to 10s for testing)
       if ((time - start_search_time) > 10000) {
         if (peers.total_num > 0) {
-          Serial.println("TIMEOUT: MAIN");
+          Serial.println("ACTION: TIMEOUT. Entering MAINLOOP.");
           state = MainLoop;
         } else {
-          Serial.println("TIMEOUT: SLEEP");
+          Serial.println("ACTION: TIMEOUT. Entering SLEEP.");
           state = Sleep;
         }
         start_search_time = 0;
@@ -124,8 +125,9 @@ void loop()
       SweepCmds cmd = button_click();
       if (cmd != None) {
         // sending message
-        Serial.print("SUCCESS: Sending message ");
-        Serial.println(cmd);
+        Serial.print("ACTION: Sending message ");
+        Serial.print(cmd);
+        Serial.println(".");
 
         m.command = (uint8_t) cmd;
         send_complete = false;
@@ -133,15 +135,40 @@ void loop()
         // send data
         if (esp_now_send(NULL, (uint8_t *)&m, sizeof(m)) != ESP_OK) {
           Serial.println("ERROR: Failure sending command message.");
-        } else if (sleeps_enabled) {
-          // if sleep intialization errors, functionally can still work
-          // just with reduced sleeps
+        } else {
+          if (sleeps_enabled) {
+            // if sleep intialization errors, functionally can still work
+            // just with reduced sleeps
 
-          // ensure message actually completes sending
-          uint32_t loc_timeout = TIMEOUT + millis();
-          while (!send_complete && millis() < loc_timeout) {
-            delay(1);
+            // ensure message actually completes sending
+            uint32_t loc_timeout = TIMEOUT + millis();
+            while (!send_complete && millis() < loc_timeout) {
+              delay(1);
+            }
+
+            // alert sleep
+            Serial.println("SUCCESS: Sleeping!");
+            Serial.flush();
+            esp_light_sleep_start();
+
+            // print success
+            esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE); // ensure no changes
           }
+
+          last_sent = millis();
+        }
+      } else {
+        // set this to be 10000
+        if (last_sent + 10000 < millis()) {
+          ConnectMessage hb;
+
+          memcpy(hb.addr, loc_addr, 6);
+          hb.command = Heartbeat;
+          Serial.println("ACTION: Sending heartbeat message.");
+          if (esp_now_send(NULL, (uint8_t *)&hb, sizeof(hb)) != ESP_OK) {
+            Serial.println("ERROR: Failure sending heartbeat.");
+          }
+          last_sent = millis();
 
           // alert sleep
           Serial.println("SUCCESS: Sleeping!");
@@ -153,8 +180,7 @@ void loop()
         }
       }
 
-      // prepare for sleep
-      delay(500);
+      Serial.println("");
       break;
     }
     case Sleep:
@@ -178,10 +204,12 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
   // only raise issue if failure
   if (status == ESP_NOW_SEND_FAIL) {
-    Serial.print("ERROR SENDING TO: ");
-    Serial.println(*mac_addr);
+    Serial.print("ERROR: Unable to send to ");
+    Serial.print(*mac_addr);
+    Serial.println(".");
   } else {
     send_complete = true;
+    last_heard = millis();
   }
 }
 
@@ -189,11 +217,11 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
 {
   // handling method .. can move out of this and into separate recv_cb binds within the loop
   // this works for now (probably)
-  Serial.println("RECEIVED");
+  Serial.println("ACTION: Received message!");
 
   if (len != sizeof(ConnectMessage) && len != sizeof(MainMessage)) {
     // early return, bad data
-    Serial.println("FAILED_RECV");
+    Serial.println("ERROR: Failed to process received message!");
     return;
   }
 
@@ -207,7 +235,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
           return;
         }
 
-        Serial.println("RECEIVER MESSAGE RECVD");
+        Serial.println("ACTION: Received receiver message!");
 
         // add to peerlist
         esp_now_peer_info_t peer = {};
@@ -227,12 +255,10 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
           }
           Serial.println("");
 
-          if (peers.total_num == 1) {
-            last_heard[0] = esp_timer_get_time() / 1000;
-          } else if (peers.total_num > 2) {
+          if (peers.total_num > 2) {
             Serial.println("ERROR: More than 2 peers connected!");
           } else {
-            last_heard[1] = esp_timer_get_time() / 1000;
+            last_heard = esp_timer_get_time() / 1000;
           }
         } else {
           // display error
@@ -258,7 +284,8 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len)
       // commands from
       switch (data.command)  {
         case Heartbeat: {
-          
+          // this shouldn't come to our side, but structure is here in case
+          // anyone wants to change that
           break;
         }
         case Disconnect: {
@@ -309,16 +336,19 @@ void pairing_call() {
 SweepCmds button_click() {
   // stop check, as its the most important command to come through
   // microseconds of difference, but still...
-  Serial.print("BUTTON: ");
-  Serial.print(digitalRead(BUTTON_ONE));
-  Serial.print(" ");
-  Serial.print(digitalRead(BUTTON_TWO));
-  Serial.print(" ");
-  Serial.print(digitalRead(BUTTON_THR));
-  Serial.print(" ");
-  Serial.print(digitalRead(BUTTON_FOU));
-  Serial.print(" ");
-  Serial.println(digitalRead(BUTTON_FIV));
+  if (BUG_TESTING) {
+    Serial.print("BUTTON: ");
+    Serial.print(digitalRead(BUTTON_ONE));
+    Serial.print(" ");
+    Serial.print(digitalRead(BUTTON_TWO));
+    Serial.print(" ");
+    Serial.print(digitalRead(BUTTON_THR));
+    Serial.print(" ");
+    Serial.print(digitalRead(BUTTON_FOU));
+    Serial.print(" ");
+    Serial.println(digitalRead(BUTTON_FIV));
+  }
+
 
   // note that button thr (physical left button)
   // and button two (physical right button) are flipped
